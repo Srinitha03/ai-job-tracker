@@ -40,7 +40,7 @@ function App() {
 
   // ✅ FETCH JOBS
   useEffect(() => {
-    fetch("http://localhost:5000/jobs")
+    fetch("https://ai-job-tracker-backend-o857.onrender.com/jobs")
       .then((res) => res.json())
       .then((data) => setJobs(data));
   }, []);
@@ -63,7 +63,7 @@ function App() {
 
   const calculateScoreWithAI = async (job) => {
     try {
-      const res = await fetch("http://localhost:5000/ai-match", {
+      const res = await fetch("https://ai-job-tracker-backend-o857.onrender.com/ai-match", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ resume, job })
@@ -80,7 +80,7 @@ function App() {
     const email = localStorage.getItem("user");
     if (!email) return;
 
-    fetch("http://localhost:5000/resume?email=" + email)
+    fetch("https://ai-job-tracker-backend-o857.onrender.com0/resume?email=" + email)
       .then((res) => res.json())
       .then((data) => {
         if (data.resume) {
@@ -93,7 +93,7 @@ function App() {
 
   const fetchApplications = async (email) => {
     try {
-      const res = await fetch(`http://localhost:5000/applications?email=${email}`);
+      const res = await fetch(`https://ai-job-tracker-backend-o857.onrender.com/applications?email=${email}`);
       const data = await res.json();
       setApplications(data);
     } catch (err) {
@@ -104,7 +104,7 @@ function App() {
   // ✅ SAVE RESUME
   const saveResume = async () => {
     const email = localStorage.getItem("user");
-    await fetch("http://localhost:5000/resume", {
+    await fetch("https://ai-job-tracker-backend-o857.onrender.com/resume", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, resume }),
@@ -155,7 +155,7 @@ function App() {
     const email = localStorage.getItem("user");
     if (applied === "yes") {
       try {
-        await fetch("http://localhost:5000/apply", {
+        await fetch("https://ai-job-tracker-backend-o857.onrender.com/apply", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -179,7 +179,7 @@ function App() {
 
   const updateApplicationStatus = async (appId, status) => {
     try {
-      await fetch(`http://localhost:5000/apply/${appId}/status`, {
+      await fetch(`https://ai-job-tracker-backend-o857.onrender.com/apply/${appId}/status`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status })
@@ -232,7 +232,7 @@ function App() {
   setChatResponse("");
 
   try {
-    const res = await fetch("http://localhost:5000/ai-chat", {
+    const res = await fetch("https://ai-job-tracker-backend-o857.onrender.com/ai-chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message }),
