@@ -1,151 +1,95 @@
 import { useEffect, useState } from "react";
 import "./App.css";
+import { useNavigate } from "react-router-dom";
 import * as pdfjsLib from "pdfjs-dist";
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+// ✅ PDF worker
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 function App() {
   const [jobs, setJobs] = useState([]);
-  const [filteredJobs, setFilteredJobs] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState(null);
+  const [search, setSearch] = useState("");
+  const [jobType, setJobType] = useState("");
+  const [mode, setMode] = useState("");
+  const [scoreFilter, setScoreFilter] = useState("");
   const [resume, setResume] = useState("");
+  const [resumeSearch, setResumeSearch] = useState(false);
+  const [aiResults, setAiResults] = useState({});
+  const [chatOpen, setChatOpen] = useState(false);
+  const [message, setMessage] = useState("");
+  const [chatResponse, setChatResponse] = useState("");
+  const [aiFilter, setAiFilter] = useState(null);
+  const [workMode, setWorkMode] = useState("");
+  const [minScore, setMinScore] = useState(0);
+  const [loading, setLoading] = useState(false);
   const [matchScores, setMatchScores] = useState({});
   const [applications, setApplications] = useState([]);
   const [showApplications, setShowApplications] = useState(false);
   const [showApplyPopup, setShowApplyPopup] = useState(null);
-  const [chatOpen, setChatOpen] = useState(false);
-  const [chatMessage, setChatMessage] = useState("");
-  const [chatResponse, setChatResponse] = useState("");
-  const [chatLoading, setChatLoading] = useState(false);
+  const [fileName, setFileName] = useState("No file chosen");
   
-  // Filters
-  const [titleFilter, setTitleFilter] = useState("");
-  const [jobTypeFilter, setJobTypeFilter] = useState("");
-  const [modeFilter, setModeFilter] = useState("");
-  const [locationFilter, setLocationFilter] = useState("");
-  const [dateRangeFilter, setDateRangeFilter] = useState("");
-  const [matchScoreFilter, setMatchScoreFilter] = useState("");
-  const [skillsFilter, setSkillsFilter] = useState([]);
-  
-  const allSkills = ["React", "Python", "Node.js", "JavaScript", "TypeScript", "AWS", "Docker", "SQL"];
-
-  // Login State
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [isLogin, setIsLogin] = useState(true);
-  const [authError, setAuthError] = useState("");
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const navigate = useNavigate();
 
   useEffect(() => {
-    const savedUser = localStorage.getItem("user");
-    if (savedUser) {
-      const userData = JSON.parse(savedUser);
-      setUser(userData);
-      setIsAuthenticated(true);
-      fetchJobs();
-      fetchUserResume(userData.email);
-      fetchApplications(userData.email);
+    const user = localStorage.getItem("user");
+    if (!user && window.location.pathname !== "/login") {
+      navigate("/login");
     }
   }, []);
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setAuthError("");
-    
-    try {
-      const res = await fetch("http://localhost:5000/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password })
-      });
-      
-      const data = await res.json();
-      
-      if (data.success) {
-        localStorage.setItem("user", JSON.stringify(data.user));
-        setUser(data.user);
-        setIsAuthenticated(true);
-        fetchJobs();
-        fetchUserResume(email);
-        fetchApplications(email);
-      } else {
-        setAuthError("Invalid credentials");
-      }
-    } catch (err) {
-      setAuthError("Login failed");
-    }
-  };
+  // ✅ FETCH JOBS
+  useEffect(() => {
+    fetch("http://localhost:5000/jobs")
+      .then((res) => res.json())
+      .then((data) => setJobs(data));
+  }, []);
 
-  const handleRegister = async (e) => {
-    e.preventDefault();
-    setAuthError("");
-    
-    try {
-      const res = await fetch("http://localhost:5000/auth/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password })
-      });
-      
-      const data = await res.json();
-      
-      if (data.success) {
-        setIsLogin(true);
-        setAuthError("Registration successful! Please login.");
-      } else {
-        setAuthError(data.message);
-      }
-    } catch (err) {
-      setAuthError("Registration failed");
+  // ✅ Calculate match scores for all jobs
+  useEffect(() => {
+    if (resume && jobs.length > 0) {
+      calculateAllMatchScores();
     }
-  };
+  }, [resume, jobs]);
 
-  const fetchJobs = async () => {
-    try {
-      const res = await fetch("http://localhost:5000/jobs");
-      const data = await res.json();
-      setJobs(data);
-      setFilteredJobs(data);
-      setLoading(false);
-    } catch (err) {
-      console.error("Error fetching jobs:", err);
-      setLoading(false);
-    }
-  };
-
-  const fetchUserResume = async (email) => {
-    try {
-      const res = await fetch(`http://localhost:5000/resume?email=${email}`);
-      const data = await res.json();
-      if (data.resume) {
-        setResume(data.resume);
-        calculateMatchScores(data.resume);
-      }
-    } catch (err) {
-      console.error("Error fetching resume:", err);
-    }
-  };
-
-  const calculateMatchScores = async (resumeText) => {
+  const calculateAllMatchScores = async () => {
     const scores = {};
-    
-    for (const job of jobs) {
-      try {
-        const res = await fetch("http://localhost:5000/ai-match", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ resume: resumeText, job })
-        });
-        const data = await res.json();
-        scores[job.id] = data.score || 0;
-      } catch (err) {
-        scores[job.id] = 0;
-      }
+    for (let job of jobs) {
+      const score = await calculateScoreWithAI(job);
+      scores[job.id] = score;
     }
-    
     setMatchScores(scores);
   };
+
+  const calculateScoreWithAI = async (job) => {
+    try {
+      const res = await fetch("http://localhost:5000/ai-match", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resume, job })
+      });
+      const data = await res.json();
+      return data.score || 0;
+    } catch (err) {
+      return calculateScore(job);
+    }
+  };
+
+  // ✅ LOAD USER RESUME
+  useEffect(() => {
+    const email = localStorage.getItem("user");
+    if (!email) return;
+
+    fetch("http://localhost:5000/resume?email=" + email)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.resume) {
+          setResume(data.resume);
+        }
+      });
+    
+    fetchApplications(email);
+  }, []);
 
   const fetchApplications = async (email) => {
     try {
@@ -157,27 +101,30 @@ function App() {
     }
   };
 
-  const handleSaveResume = async () => {
-    try {
-      await fetch("http://localhost:5000/resume", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: user.email, resume })
-      });
-      alert("Resume saved!");
-      calculateMatchScores(resume);
-    } catch (err) {
-      alert("Error saving resume");
-    }
+  // ✅ SAVE RESUME
+  const saveResume = async () => {
+    const email = localStorage.getItem("user");
+    await fetch("http://localhost:5000/resume", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, resume }),
+    });
+    alert("Resume saved!");
+    calculateAllMatchScores();
   };
 
+  // ✅ FILE UPLOAD (TXT + PDF)
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     
+    setFileName(file.name);
+
     if (file.type === "text/plain") {
       const reader = new FileReader();
-      reader.onload = (event) => setResume(event.target.result);
+      reader.onload = (event) => {
+        setResume(event.target.result);
+      };
       reader.readAsText(file);
     } else if (file.type === "application/pdf") {
       const reader = new FileReader();
@@ -188,7 +135,8 @@ function App() {
         for (let i = 1; i <= pdf.numPages; i++) {
           const page = await pdf.getPage(i);
           const content = await page.getTextContent();
-          fullText += content.items.map(item => item.str).join(" ");
+          const strings = content.items.map((item) => item.str);
+          fullText += strings.join(" ");
         }
         setResume(fullText);
       };
@@ -199,18 +147,19 @@ function App() {
   };
 
   const handleApply = (job) => {
-    window.open(job.link, "_blank");
+    window.open(job.link || job.applyLink, "_blank");
     setShowApplyPopup(job);
   };
 
   const confirmApplication = async (applied, job) => {
+    const email = localStorage.getItem("user");
     if (applied === "yes") {
       try {
         await fetch("http://localhost:5000/apply", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            email: user.email,
+            email: email,
             jobId: job.id,
             jobTitle: job.title,
             company: job.company,
@@ -220,7 +169,7 @@ function App() {
           })
         });
         alert(`Applied to ${job.title} successfully!`);
-        fetchApplications(user.email);
+        fetchApplications(email);
       } catch (err) {
         alert("Error saving application");
       }
@@ -235,97 +184,111 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status })
       });
-      fetchApplications(user.email);
+      const email = localStorage.getItem("user");
+      fetchApplications(email);
     } catch (err) {
       console.error("Error updating status:", err);
     }
   };
 
-  const applyFilters = () => {
-    let filtered = [...jobs];
-    
-    if (titleFilter) {
-      filtered = filtered.filter(j => j.title.toLowerCase().includes(titleFilter.toLowerCase()));
-    }
-    
-    if (jobTypeFilter) {
-      filtered = filtered.filter(j => j.type === jobTypeFilter);
-    }
-    
-    if (modeFilter) {
-      filtered = filtered.filter(j => j.mode === modeFilter);
-    }
-    
-    if (locationFilter) {
-      filtered = filtered.filter(j => 
-        j.city.toLowerCase().includes(locationFilter.toLowerCase()) ||
-        j.country.toLowerCase().includes(locationFilter.toLowerCase())
-      );
-    }
-    
-    if (dateRangeFilter) {
-      const now = new Date();
-      const days = parseInt(dateRangeFilter);
-      const cutoff = new Date(now.setDate(now.getDate() - days));
-      filtered = filtered.filter(j => new Date(j.postedDate) >= cutoff);
-    }
-    
-    if (matchScoreFilter) {
-      filtered = filtered.filter(j => {
-        const score = matchScores[j.id] || 0;
-        if (matchScoreFilter === "high") return score > 70;
-        if (matchScoreFilter === "medium") return score >= 40 && score <= 70;
-        return true;
-      });
-    }
-    
-    if (skillsFilter.length > 0) {
-      filtered = filtered.filter(j => 
-        skillsFilter.some(skill => 
-          j.skills.some(js => js.toLowerCase().includes(skill.toLowerCase()))
-        )
-      );
-    }
-    
-    setFilteredJobs(filtered);
+  // ✅ MATCH SCORE
+  const calculateScore = (job) => {
+    if (!resume) return 0;
+    const resumeText = resume.toLowerCase();
+    let match = 0;
+    job.skills.forEach((skill) => {
+      if (resumeText.includes(skill.toLowerCase())) match++;
+    });
+    return Math.round((match / job.skills.length) * 100);
   };
 
-  useEffect(() => {
-    if (jobs.length > 0) applyFilters();
-  }, [titleFilter, jobTypeFilter, modeFilter, locationFilter, dateRangeFilter, matchScoreFilter, skillsFilter, matchScores]);
+  // ✅ FILTER JOBS
+  const filteredJobs = jobs.filter((job) => {
+    const score = matchScores[job.id] || calculateScore(job);
+    return (
+      job.title.toLowerCase().includes(search.toLowerCase()) &&
+      (jobType === "" || job.type === jobType) &&
+      (mode === "" || job.mode === mode) &&
+      (scoreFilter === "" ||
+        (scoreFilter === "high" && score > 70) ||
+        (scoreFilter === "medium" && score >= 40 && score <= 70))
+    );
+  });
 
-  const handleChat = async () => {
-    if (!chatMessage.trim()) return;
-    
-    setChatLoading(true);
-    
-    try {
-      const res = await fetch("http://localhost:5000/ai-chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: chatMessage })
-      });
+  // ✅ BEST MATCHES
+  const bestMatches = [...jobs]
+    .map((job) => ({
+      ...job,
+      score: matchScores[job.id] || calculateScore(job),
+    }))
+    .filter((job) => job.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 6);
+
+  const sendMessage = async () => {
+  if (!message.trim()) return;
+  
+  setLoading(true);
+  setChatResponse("");
+
+  try {
+    const res = await fetch("http://localhost:5000/ai-chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message }),
+    });
+
+    const data = await res.json();
+    console.log("AI RESPONSE:", data);
+    setChatResponse(data.reply);
+
+    // ✅ Apply filters from AI
+    if (data.filters) {
+      if (data.filters.mode === "Remote") setMode("Remote");
+      if (data.filters.mode === "Hybrid") setMode("Hybrid");
+      if (data.filters.mode === "On-site") setMode("On-site");
+      if (data.filters.type) setJobType(data.filters.type);
+      if (data.filters.title) setSearch(data.filters.title);
+      if (data.filters.matchScore === "high") setScoreFilter("high");
+      if (data.filters.matchScore === "medium") setScoreFilter("medium");
       
-      const data = await res.json();
-      setChatResponse(data.reply);
-      
-      // Apply filters from AI
-      if (data.filters) {
-        if (data.filters.mode) setModeFilter(data.filters.mode);
-        if (data.filters.type) setJobTypeFilter(data.filters.type);
-        if (data.filters.title) setTitleFilter(data.filters.title);
-        if (data.filters.location) setLocationFilter(data.filters.location);
-        if (data.filters.matchScore) setMatchScoreFilter(data.filters.matchScore);
-        if (data.filters.dateRange) setDateRangeFilter(data.filters.dateRange);
-      }
-      
-      setChatMessage("");
-    } catch (err) {
-      setChatResponse("Sorry, I encountered an error. Please try again.");
+      // ✅ Enable resume search to show filtered jobs
+      setResumeSearch(false);
     }
     
-    setChatLoading(false);
-  };
+    // ✅ Handle direct filter responses
+    if (data.filter === "remote") {
+      setMode("Remote");
+      setResumeSearch(false);
+    }
+    if (data.filter === "hybrid") {
+      setMode("Hybrid");
+      setResumeSearch(false);
+    }
+    if (data.filter === "onsite") {
+      setMode("On-site");
+      setResumeSearch(false);
+    }
+    if (data.filter === "high_match") {
+      setScoreFilter("high");
+      setResumeSearch(false);
+    }
+    if (data.filter === "all") {
+      setMode("");
+      setJobType("");
+      setScoreFilter("");
+      setSearch("");
+      setResumeSearch(false);
+    }
+
+    setMessage("");
+  } catch (err) {
+    console.error("Chat error:", err);
+    setChatResponse("Sorry, I encountered an error. Please try again.");
+  }
+  
+  setLoading(false);
+};
 
   const getMatchColor = (score) => {
     if (score > 70) return "match-high";
@@ -333,106 +296,98 @@ function App() {
     return "match-low";
   };
 
-  const bestMatches = [...jobs]
-    .map(job => ({ ...job, score: matchScores[job.id] || 0 }))
-    .filter(job => job.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 6);
-
-  if (!isAuthenticated) {
-    return (
-      <div className="auth-container">
-        <div className="auth-card">
-          <h1>🎯 AI Job Tracker</h1>
-          <h2>{isLogin ? "Login" : "Register"}</h2>
-          <form onSubmit={isLogin ? handleLogin : handleRegister}>
-            <input
-              type="email"
-              placeholder="Email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-            <input
-              type="password"
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-            {authError && <p className="error">{authError}</p>}
-            <button type="submit">{isLogin ? "Login" : "Register"}</button>
-          </form>
-          <p onClick={() => setIsLogin(!isLogin)} className="switch-auth">
-            {isLogin ? "Need an account? Register" : "Already have an account? Login"}
-          </p>
-          <div className="test-credentials">
-            <p>Test Credentials:</p>
-            <p>Email: test@gmail.com</p>
-            <p>Password: test@123</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (loading) {
-    return (
-      <div className="loading">
-        <div className="spinner"></div>
-        <p>Loading jobs...</p>
-      </div>
-    );
-  }
-
   return (
     <div className="container">
-      {/* Header */}
+      {/* HEADER with View Applications and Logout on TOP RIGHT */}
       <div className="header">
-        <div>
-          <h1>🎯 AI Job Tracker</h1>
-          <p>Welcome, {user?.email}</p>
+        <div className="header-left">
+          <h1> AI Job Tracker</h1>
+          <p className="header-subtitle">AI-powered job matching based on resume analysis</p>
         </div>
-        <div className="header-buttons">
-          <button onClick={() => setShowApplications(!showApplications)}>
-            {showApplications ? "📋 Browse Jobs" : "📊 My Applications"} ({applications.length})
+        <div className="header-right">
+          <button 
+            className="view-apps-btn"
+            onClick={() => setShowApplications(!showApplications)}
+          >
+            {showApplications ? "← Browse Jobs" : ` View Applications (${applications.length})`}
           </button>
-          <button onClick={() => {
-            localStorage.removeItem("user");
-            setIsAuthenticated(false);
-            setUser(null);
-          }}>
-            Logout
+          <button 
+            className="logout-btn"
+            onClick={() => {
+              localStorage.removeItem("user");
+              navigate("/login");
+            }}
+          >
+             Logout
           </button>
         </div>
       </div>
 
-      {/* Resume Section */}
+      {/* RESUME SECTION */}
       <div className="resume-section">
-        <h3>📄 Your Resume</h3>
+        <h3> Your Resume</h3>
         <textarea
           placeholder="Paste your resume here or upload a file..."
           value={resume}
           onChange={(e) => setResume(e.target.value)}
-          rows="4"
+          rows="5"
         />
-        <div className="resume-actions">
-          <input type="file" accept=".txt,.pdf" onChange={handleFileUpload} />
-          <button onClick={handleSaveResume}>💾 Save Resume</button>
+        <input
+          type="file"
+          accept=".txt,.pdf"
+          onChange={handleFileUpload}
+        />
+
+        <div className="resume-buttons">
+          <button onClick={saveResume}> Save Resume</button>
+          <button onClick={() => setResumeSearch(true)}> Find Matching Jobs</button>
+          <button onClick={() => {
+            setResumeSearch(false);
+            setMode("");
+            setJobType("");
+            setScoreFilter("");
+            setSearch("");
+          }}>Show All Jobs</button>
+        </div>
+      </div>
+
+      {/* SEARCH SECTION */}
+      <div className="search-section">
+        <input
+          type="text"
+          placeholder="Search jobs by title or skills..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="search-input"
+        />
+        <div className="filters">
+          <select onChange={(e) => setJobType(e.target.value)} value={jobType}>
+            <option value="">All Types</option>
+            <option>Full-time</option>
+            <option>Part-time</option>
+            <option>Contract</option>
+            <option>Internship</option>
+          </select>
+          <select onChange={(e) => setMode(e.target.value)} value={mode}>
+            <option value="">Work Mode</option>
+            <option>Remote</option>
+            <option>Hybrid</option>
+            <option>On-site</option>
+          </select>
+          <select onChange={(e) => setScoreFilter(e.target.value)} value={scoreFilter}>
+            <option value="">Match Score</option>
+            <option value="high">High (&gt;70%)</option>
+            <option value="medium">Medium (40-70%)</option>
+          </select>
         </div>
       </div>
 
       {showApplications ? (
-        // Applications Dashboard
+        // APPLICATIONS DASHBOARD
         <div className="applications-section">
-          <div className="applications-header">
-            <h2>📋 My Job Applications</h2>
-            <button onClick={() => setShowApplications(false)} className="back-btn">
-              ← Back to Jobs
-            </button>
-          </div>
+          <h2> My Job Applications</h2>
           {applications.length === 0 ? (
-            <div className="no-jobs">
+            <div className="no-applications">
               <p>No applications yet. Start applying to jobs!</p>
             </div>
           ) : (
@@ -455,14 +410,6 @@ function App() {
                     </select>
                   </div>
                   <p className="app-date">Applied: {new Date(app.appliedDate).toLocaleDateString()}</p>
-                  {app.timeline && (
-                    <div className="app-timeline">
-                      <small>Timeline:</small>
-                      {app.timeline.map((t, i) => (
-                        <div key={i}>• {t.status} on {new Date(t.date).toLocaleDateString()}</div>
-                      ))}
-                    </div>
-                  )}
                 </div>
               ))}
             </div>
@@ -470,132 +417,85 @@ function App() {
         </div>
       ) : (
         <>
-          {/* Best Matches Section */}
-          {resume && bestMatches.length > 0 && (
+          {/* MESSAGE */}
+          {resumeSearch && (
+            <h3 className="search-message">🔍 Showing jobs matching your resume</h3>
+          )}
+          
+          {/* BEST MATCHES */}
+          {resumeSearch && bestMatches.length > 0 && (
             <>
               <h2>⭐ Best Matches for You</h2>
               <div className="job-container">
-                {bestMatches.map((job) => (
-                  <div key={job.id} className="job-card">
-                    <h3>{job.title}</h3>
-                    <p><b>{job.company}</b></p>
-                    <p>📍 {job.location}</p>
-                    <p className="desc">{job.description}</p>
-                    <div className="job-badges">
-                      <span className="badge">{job.type}</span>
-                      <span className="badge">{job.mode}</span>
+                {bestMatches.map((job, index) => {
+                  const score = matchScores[job.id] || calculateScore(job);
+                  return (
+                    <div key={index} className="job-card">
+                      <h3>{job.title}</h3>
+                      <p className="company">{job.company}</p>
+                      <p className="location">📍 {job.location}</p>
+                      <p className="desc">{job.description}</p>
+                      <div className="job-badges">
+                        <p className="job-type-mode">
+  {job.type} • {job.mode}
+</p>
+                      </div>
+                      <p className={getMatchColor(score)}>
+                        Match: {score}%
+                      </p>
+                      <button
+                        className="apply-btn"
+                        onClick={() => handleApply(job)}
+                      >
+                        Apply Now
+                      </button>
                     </div>
-                    <p className={getMatchColor(job.score)}>
-                      Match: {job.score}%
-                    </p>
-                    <button className="apply-btn" onClick={() => handleApply(job)}>
-                      Apply Now
-                    </button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </>
           )}
 
-          {/* Filters Section */}
-          <div className="filters-section">
-            <h2>🔍 Filter Jobs</h2>
-            <div className="filter-grid">
-              <input
-                type="text"
-                placeholder="Job title..."
-                value={titleFilter}
-                onChange={(e) => setTitleFilter(e.target.value)}
-              />
-              
-              <input
-                type="text"
-                placeholder="Location..."
-                value={locationFilter}
-                onChange={(e) => setLocationFilter(e.target.value)}
-              />
-              
-              <select value={jobTypeFilter} onChange={(e) => setJobTypeFilter(e.target.value)}>
-                <option value="">All Types</option>
-                <option>Full-time</option>
-                <option>Part-time</option>
-                <option>Contract</option>
-                <option>Internship</option>
-              </select>
-              
-              <select value={modeFilter} onChange={(e) => setModeFilter(e.target.value)}>
-                <option value="">All Modes</option>
-                <option>Remote</option>
-                <option>Hybrid</option>
-                <option>On-site</option>
-              </select>
-              
-              <select value={dateRangeFilter} onChange={(e) => setDateRangeFilter(e.target.value)}>
-                <option value="">Any Time</option>
-                <option value="1">Last 24 Hours</option>
-                <option value="7">Last Week</option>
-                <option value="30">Last Month</option>
-              </select>
-              
-              <select value={matchScoreFilter} onChange={(e) => setMatchScoreFilter(e.target.value)}>
-                <option value="">All Scores</option>
-                <option value="high">High Match (&gt;70%)</option>
-                <option value="medium">Medium Match (40-70%)</option>
-              </select>
-              
-              <div className="skills-filter">
-                <label>Skills:</label>
-                <div className="skills-checkboxes">
-                  {allSkills.map(skill => (
-                    <label key={skill}>
-                      <input
-                        type="checkbox"
-                        value={skill}
-                        checked={skillsFilter.includes(skill)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSkillsFilter([...skillsFilter, skill]);
-                          } else {
-                            setSkillsFilter(skillsFilter.filter(s => s !== skill));
-                          }
-                        }}
-                      />
-                      {skill}
-                    </label>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <div className="filter-stats">
-              Showing {filteredJobs.length} of {jobs.length} jobs
-            </div>
-          </div>
+          {/* NO MATCH MESSAGE */}
+          {resumeSearch && bestMatches.length === 0 && (
+            <h3 className="no-match">❌ No matching jobs found. Try uploading a more detailed resume.</h3>
+          )}
 
-          {/* All Jobs */}
-          <h2>📋 All Jobs</h2>
+          {/* ALL JOBS */}
+          <h2>AI Recommended Jobs/ALL Jobs</h2>
           <div className="job-container">
-            {filteredJobs.map((job) => {
-              const score = matchScores[job.id] || 0;
+            {filteredJobs.length === 0 && (
+              <div className="no-jobs">
+                <p>❌ No jobs found</p>
+              </div>
+            )}
+
+            {filteredJobs.map((job, index) => {
+              const score = matchScores[job.id] || calculateScore(job);
               return (
-                <div key={job.id} className="job-card">
+                <div key={index} className="job-card">
                   <h3>{job.title}</h3>
-                  <p><b>{job.company}</b></p>
-                  <p>📍 {job.location}</p>
+                  <p className="company">{job.company}</p>
+                  <p className="location">📍 {job.location}</p>
                   <p className="desc">{job.description}</p>
                   <div className="job-badges">
-                    <span className="badge">{job.type}</span>
-                    <span className="badge">{job.mode}</span>
+                    <p className="job-type-mode">
+  {job.type} • {job.mode}
+</p>
                   </div>
                   <div className="job-skills">
-                    {job.skills.slice(0, 3).map(skill => (
+                    {job.skills && job.skills.slice(0, 3).map(skill => (
                       <span key={skill} className="skill-tag">{skill}</span>
                     ))}
-                    {job.skills.length > 3 && <span>+{job.skills.length - 3}</span>}
+                    {job.skills && job.skills.length > 3 && <span className="skill-tag">+{job.skills.length - 3}</span>}
                   </div>
                   <p className={getMatchColor(score)}>
                     Match: {score}%
                   </p>
-                  <button className="apply-btn" onClick={() => handleApply(job)}>
+                  <button
+                    className="apply-btn"
+                    onClick={() => handleApply(job)}
+                  >
                     Apply Now
                   </button>
                 </div>
@@ -605,7 +505,7 @@ function App() {
         </>
       )}
 
-      {/* Apply Popup */}
+      {/* APPLY POPUP */}
       {showApplyPopup && (
         <div className="popup">
           <div className="popup-content">
@@ -619,39 +519,42 @@ function App() {
         </div>
       )}
 
-      {/* AI Chat Assistant */}
-      <div className="chat-container">
-        {!chatOpen && (
-          <button className="chat-toggle" onClick={() => setChatOpen(true)}>
-            💬
-          </button>
-        )}
-        
-        {chatOpen && (
-          <div className="chat-window">
-            <div className="chat-header">
-              <h4>🤖 AI Assistant</h4>
-              <button onClick={() => setChatOpen(false)}>✕</button>
-            </div>
-            <div className="chat-messages">
-              {chatResponse && (
-                <div className="chat-message bot">
-                  <p>{chatResponse}</p>
-                </div>
-              )}
-              {chatLoading && <p className="chat-loading">Thinking...</p>}
-            </div>
-            <div className="chat-input">
-              <input
-                type="text"
-                value={chatMessage}
-                onChange={(e) => setChatMessage(e.target.value)}
-                placeholder="Ask me anything... (e.g., 'Show remote jobs', 'Filter by last 24 hours')"
-                onKeyPress={(e) => e.key === 'Enter' && handleChat()}
-              />
-              <button onClick={handleChat}>Send</button>
-            </div>
-          </div>
+      {/* ✅ ADD CHAT HERE */}
+<div style={{
+  position: "fixed",
+  bottom: 20,
+  right: 20
+}}>
+  {!chatOpen && (
+    <button onClick={() => setChatOpen(true)}>
+      💬 AI
+    </button>
+  )}
+
+  {chatOpen && (
+    <div style={{
+      background: "white",
+      padding: 10,
+      width: 300,
+      borderRadius: 10,
+      boxShadow: "0 0 10px rgba(0,0,0,0.2)"
+    }}>
+      <h4>AI Assistant</h4>
+
+      <textarea
+        value={message}
+        onChange={(e) => setMessage(e.target.value)}
+        placeholder="Ask jobs..."
+      />
+
+      <button onClick={sendMessage}>Send</button>
+      {loading && <p> Thinking...</p>}
+
+
+      <p><b>AI:</b> {chatResponse}</p>
+
+      <button onClick={() => setChatOpen(false)}>Close</button>
+    </div>
         )}
       </div>
     </div>

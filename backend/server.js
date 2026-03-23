@@ -1,26 +1,22 @@
 const Fastify = require("fastify");
 const cors = require("@fastify/cors");
-const { OpenAI } = require("@langchain/openai");
-const { ChatPromptTemplate } = require("@langchain/core/prompts");
-const { StringOutputParser } = require("@langchain/core/output_parsers");
-const { StateGraph } = require("@langchain/langgraph");
 require("dotenv").config();
 
 const app = Fastify({ logger: true });
 app.register(cors);
 
 // ============================================
-// JOBS DATABASE (9 Jobs with all required fields)
+// JOBS DATABASE - 9 Jobs
 // ============================================
 const jobs = [
   {
     id: 1,
-    title: "Senior React Developer",
+    title: "AI Engineer",
     company: "Google",
     location: "Mountain View, CA",
     city: "Mountain View",
     country: "USA",
-    description: "Build scalable frontend applications using React, Redux, and modern JavaScript. Work on cutting-edge projects.",
+    description: "Build scalable frontend applications using React, Redux, and modern JavaScript.",
     type: "Full-time",
     mode: "Remote",
     skills: ["React", "JavaScript", "Redux", "TypeScript", "HTML/CSS"],
@@ -32,7 +28,7 @@ const jobs = [
   },
   {
     id: 2,
-    title: "Backend Engineer - Node.js",
+    title: "Frontend Developer",
     company: "Amazon",
     location: "Bangalore, India",
     city: "Bangalore",
@@ -49,7 +45,7 @@ const jobs = [
   },
   {
     id: 3,
-    title: "Python Developer",
+    title: "Backend Developer",
     company: "Microsoft",
     location: "London, UK",
     city: "London",
@@ -66,7 +62,7 @@ const jobs = [
   },
   {
     id: 4,
-    title: "Machine Learning Engineer",
+    title: "Data Scientist",
     company: "Meta",
     location: "Seattle, WA",
     city: "Seattle",
@@ -169,20 +165,19 @@ const jobs = [
 ];
 
 // ============================================
-// IN-MEMORY STORAGE
+// STORAGE
 // ============================================
 let users = [
-  { email: "test@gmail.com", password: "test@123", resume: "" }
+  { email: "test@gmail.com", password: "test@123" }
 ];
 let applications = [];
 let userResumes = {};
 
 // ============================================
-// AUTHENTICATION ENDPOINTS
+// AUTH ENDPOINTS
 // ============================================
 app.post("/auth/login", async (req, reply) => {
   const { email, password } = req.body;
-  
   const user = users.find(u => u.email === email && u.password === password);
   
   if (user) {
@@ -192,7 +187,6 @@ app.post("/auth/login", async (req, reply) => {
       user: { email: user.email }
     });
   }
-  
   return reply.status(401).send({ 
     success: false, 
     message: "Invalid credentials" 
@@ -201,15 +195,13 @@ app.post("/auth/login", async (req, reply) => {
 
 app.post("/auth/register", async (req, reply) => {
   const { email, password } = req.body;
-  
   if (users.find(u => u.email === email)) {
     return reply.status(400).send({ 
       success: false, 
       message: "User already exists" 
     });
   }
-  
-  users.push({ email, password, resume: "" });
+  users.push({ email, password });
   return reply.send({ 
     success: true, 
     message: "Registration successful" 
@@ -229,43 +221,6 @@ app.get("/jobs/:id", async (req, reply) => {
   return reply.send(job);
 });
 
-app.get("/jobs/filter", async (req, reply) => {
-  let filtered = [...jobs];
-  const { title, type, mode, location, minMatch, dateRange } = req.query;
-  
-  if (title) {
-    filtered = filtered.filter(j => 
-      j.title.toLowerCase().includes(title.toLowerCase())
-    );
-  }
-  
-  if (type && type !== 'all') {
-    filtered = filtered.filter(j => j.type === type);
-  }
-  
-  if (mode && mode !== 'all') {
-    filtered = filtered.filter(j => j.mode === mode);
-  }
-  
-  if (location) {
-    filtered = filtered.filter(j => 
-      j.city.toLowerCase().includes(location.toLowerCase()) ||
-      j.country.toLowerCase().includes(location.toLowerCase())
-    );
-  }
-  
-  if (dateRange) {
-    const now = new Date();
-    const days = parseInt(dateRange);
-    if (days) {
-      const cutoff = new Date(now.setDate(now.getDate() - days));
-      filtered = filtered.filter(j => j.postedDate >= cutoff);
-    }
-  }
-  
-  return reply.send(filtered);
-});
-
 // ============================================
 // RESUME ENDPOINTS
 // ============================================
@@ -273,47 +228,19 @@ app.post("/resume", async (req, reply) => {
   const { email, resume } = req.body;
   if (!email) return reply.status(400).send({ error: "Email required" });
   
-  userResumes[email] = {
-    resume,
-    skills: extractSkills(resume),
-    updatedAt: new Date().toISOString()
-  };
-  
+  userResumes[email] = { resume, updatedAt: new Date().toISOString() };
   return reply.send({ success: true, message: "Resume saved" });
 });
 
 app.get("/resume", async (req, reply) => {
   const { email } = req.query;
   if (!email) return reply.status(400).send({ error: "Email required" });
-  
-  return reply.send({
-    resume: userResumes[email]?.resume || "",
-    skills: userResumes[email]?.skills || []
-  });
+  return reply.send({ resume: userResumes[email]?.resume || "" });
 });
 
-function extractSkills(resume) {
-  const skills = [];
-  const skillKeywords = ["python", "react", "node.js", "javascript", "java", 
-    "typescript", "aws", "docker", "kubernetes", "sql", "mongodb"];
-  
-  const resumeLower = resume.toLowerCase();
-  skillKeywords.forEach(skill => {
-    if (resumeLower.includes(skill)) skills.push(skill);
-  });
-  
-  return skills;
-}
-
 // ============================================
-// AI MATCHING WITH LANGCHAIN
+// AI MATCHING (Simple Skill-based)
 // ============================================
-const llm = new OpenAI({
-  openAIApiKey: process.env.OPENAI_API_KEY,
-  temperature: 0.3,
-  modelName: "gpt-3.5-turbo"
-});
-
 app.post("/ai-match", async (req, reply) => {
   const { resume, job } = req.body;
   
@@ -322,36 +249,30 @@ app.post("/ai-match", async (req, reply) => {
   }
   
   try {
-    const prompt = ChatPromptTemplate.fromTemplate(`
-      You are an AI job matching expert. Compare the candidate's resume with the job description.
-      
-      Resume: {resume}
-      
-      Job Title: {title}
-      Job Description: {description}
-      Required Skills: {skills}
-      
-      Calculate a match score from 0-100 based on:
-      1. Skills match (60% weight)
-      2. Experience relevance (30% weight)
-      3. Keywords alignment (10% weight)
-      
-      Return ONLY a JSON object with:
-      - score: number (0-100)
-      - matchingSkills: array of matching skills
-      - explanation: brief explanation of match
-    `);
+    const resumeLower = resume.toLowerCase();
+    let matchCount = 0;
     
-    const chain = prompt.pipe(llm).pipe(new StringOutputParser());
-    const result = await chain.invoke({
-      resume: resume.substring(0, 2000),
-      title: job.title,
-      description: job.description,
-      skills: job.skills.join(", ")
+    job.skills.forEach(skill => {
+      if (resumeLower.includes(skill.toLowerCase())) {
+        matchCount++;
+      }
     });
     
-    const parsed = JSON.parse(result);
-    return reply.send({ result: parsed.explanation, score: parsed.score, matchingSkills: parsed.matchingSkills });
+    const score = Math.round((matchCount / job.skills.length) * 100);
+    const matchingSkills = job.skills.filter(skill => 
+      resumeLower.includes(skill.toLowerCase())
+    );
+    
+    let explanation = "";
+    if (score > 70) explanation = "Great match! Your skills align well with this role.";
+    else if (score >= 40) explanation = "Good match. Consider highlighting relevant skills in your resume.";
+    else explanation = "Low match. Try adding relevant skills to your resume.";
+    
+    return reply.send({ 
+      result: explanation, 
+      score: score, 
+      matchingSkills: matchingSkills 
+    });
   } catch (err) {
     console.error("AI Match error:", err);
     return reply.send({ result: "Match analysis unavailable", score: 0 });
@@ -359,212 +280,99 @@ app.post("/ai-match", async (req, reply) => {
 });
 
 // ============================================
-// LANGGRAPH AI ASSISTANT
+// AI CHAT ASSISTANT - Simple but Powerful
 // ============================================
-class AIAssistant {
-  constructor() {
-    this.graph = this.buildGraph();
-    this.state = {
-      messages: [],
-      currentFilters: {
-        mode: null,
-        type: null,
-        dateRange: null,
-        title: null,
-        location: null,
-        matchScore: null
-      }
-    };
-  }
-  
-  buildGraph() {
-    const workflow = new StateGraph({
-      channels: {
-        messages: "array",
-        intent: "string",
-        filters: "object",
-        response: "string"
-      }
-    });
-    
-    // Node 1: Detect Intent
-    workflow.addNode("detectIntent", async (state) => {
-      const lastMessage = state.messages[state.messages.length - 1];
-      
-      const intentPrompt = ChatPromptTemplate.fromTemplate(`
-        Analyze this user message and determine the intent.
-        Message: {message}
-        
-        Intent types:
-        - JOB_SEARCH: Looking for jobs with specific criteria
-        - FILTER_JOBS: Apply filters to job listing
-        - HELP: Asking how to use the app
-        - GENERAL: General conversation
-        
-        Return ONLY the intent type.
-      `);
-      
-      const chain = intentPrompt.pipe(llm).pipe(new StringOutputParser());
-      const intent = await chain.invoke({ message: lastMessage });
-      
-      return { ...state, intent: intent.trim() };
-    });
-    
-    // Node 2: Extract Filters
-    workflow.addNode("extractFilters", async (state) => {
-      if (state.intent !== "JOB_SEARCH" && state.intent !== "FILTER_JOBS") {
-        return state;
-      }
-      
-      const lastMessage = state.messages[state.messages.length - 1];
-      
-      const filterPrompt = ChatPromptTemplate.fromTemplate(`
-        Extract job filters from this message:
-        "{message}"
-        
-        Available filters:
-        - mode: remote, hybrid, onsite
-        - type: full-time, part-time, contract, internship
-        - dateRange: 1 (24h), 7 (week), 30 (month)
-        - title: job title keywords
-        - location: city or country
-        - matchScore: high (>70%), medium (40-70%)
-        
-        Return JSON only: {{"mode": null, "type": null, "dateRange": null, "title": null, "location": null, "matchScore": null}}
-      `);
-      
-      const chain = filterPrompt.pipe(llm).pipe(new StringOutputParser());
-      const filtersJson = await chain.invoke({ message: lastMessage });
-      
-      try {
-        const filters = JSON.parse(filtersJson);
-        return { ...state, filters: { ...state.filters, ...filters } };
-      } catch {
-        return state;
-      }
-    });
-    
-    // Node 3: Generate Response
-    workflow.addNode("generateResponse", async (state) => {
-      const lastMessage = state.messages[state.messages.length - 1];
-      
-      let responsePrompt;
-      
-      if (state.intent === "HELP") {
-        responsePrompt = ChatPromptTemplate.fromTemplate(`
-          You are a helpful AI assistant for a job tracking app. Answer this help question:
-          "{message}"
-          
-          Features available:
-          - Upload resume to get match scores
-          - Filter jobs by mode, type, location
-          - AI can control filters for you
-          - Track applications in dashboard
-          
-          Provide a helpful, concise answer.
-        `);
-      } else if (state.intent === "JOB_SEARCH" || state.intent === "FILTER_JOBS") {
-        const activeFilters = Object.entries(state.filters)
-          .filter(([_, v]) => v)
-          .map(([k, v]) => `${k}: ${v}`)
-          .join(", ");
-        
-        responsePrompt = ChatPromptTemplate.fromTemplate(`
-          You are a job search assistant. User asked: "{message}"
-          Active filters: {filters}
-          
-          Generate a friendly response confirming the filters applied and suggesting next steps.
-          If no filters, encourage them to try specific searches.
-        `);
-      } else {
-        responsePrompt = ChatPromptTemplate.fromTemplate(`
-          You are a friendly job search assistant. Respond to: "{message}"
-          Keep it short and helpful.
-        `);
-      }
-      
-      const chain = responsePrompt.pipe(llm).pipe(new StringOutputParser());
-      const response = await chain.invoke({ 
-        message: lastMessage,
-        filters: JSON.stringify(state.filters)
-      });
-      
-      return { ...state, response };
-    });
-    
-    // Add edges
-    workflow.addEdge("__start__", "detectIntent");
-    workflow.addEdge("detectIntent", "extractFilters");
-    workflow.addEdge("extractFilters", "generateResponse");
-    workflow.addEdge("generateResponse", "__end__");
-    
-    return workflow.compile();
-  }
-  
-  async processMessage(message) {
-    this.state.messages.push(message);
-    
-    const result = await this.graph.invoke({
-      messages: this.state.messages,
-      intent: "",
-      filters: this.state.currentFilters,
-      response: ""
-    });
-    
-    // Update filters
-    this.state.currentFilters = { ...this.state.currentFilters, ...result.filters };
-    
-    return {
-      reply: result.response,
-      filters: result.filters,
-      intent: result.intent
-    };
-  }
-  
-  reset() {
-    this.state = {
-      messages: [],
-      currentFilters: {
-        mode: null,
-        type: null,
-        dateRange: null,
-        title: null,
-        location: null,
-        matchScore: null
-      }
-    };
-  }
-}
-
-const aiAssistant = new AIAssistant();
-
 app.post("/ai-chat", async (req, reply) => {
   const { message } = req.body;
   
   if (!message) {
-    return reply.status(400).send({ reply: "Message is required", filters: null });
+    return reply.status(400).send({ reply: "Message is required", filter: null });
   }
-  
+
   try {
-    const result = await aiAssistant.processMessage(message);
+    const messageLower = message.toLowerCase();
+    let filter = null;
+    let replyMessage = "";
+    
+    // Check for remote jobs
+    if (messageLower.includes("remote")) {
+      filter = "remote";
+      replyMessage = "✅ Showing remote jobs! I've applied the Remote filter for you. You can now see only remote positions.";
+    }
+    // Check for hybrid jobs
+    else if (messageLower.includes("hybrid")) {
+      filter = "hybrid";
+      replyMessage = "✅ Showing hybrid jobs! I've applied the Hybrid filter for you. These jobs combine office and remote work.";
+    }
+    // Check for onsite jobs
+    else if (messageLower.includes("onsite") || messageLower.includes("on-site") || messageLower.includes("office")) {
+      filter = "onsite";
+      replyMessage = "✅ Showing on-site jobs! I've applied the On-site filter for you. These jobs require working from the office.";
+    }
+    // Check for full-time jobs
+    else if (messageLower.includes("full time") || messageLower.includes("full-time")) {
+      filter = "full-time";
+      replyMessage = "✅ Showing full-time jobs! I've applied the Full-time filter for you.";
+    }
+    // Check for part-time jobs
+    else if (messageLower.includes("part time") || messageLower.includes("part-time")) {
+      filter = "part-time";
+      replyMessage = "✅ Showing part-time jobs! I've applied the Part-time filter for you.";
+    }
+    // Check for contract jobs
+    else if (messageLower.includes("contract")) {
+      filter = "contract";
+      replyMessage = "✅ Showing contract jobs! I've applied the Contract filter for you.";
+    }
+    // Check for internship jobs
+    else if (messageLower.includes("intern")) {
+      filter = "internship";
+      replyMessage = "✅ Showing internship jobs! I've applied the Internship filter for you.";
+    }
+    // Check for high match
+    else if (messageLower.includes("high match") || messageLower.includes("high score") || messageLower.includes("best match")) {
+      filter = "high_match";
+      replyMessage = "✅ Showing high match jobs (>70%)! I've applied the High Match filter for you.";
+    }
+    // Check for clear all filters
+    else if (messageLower.includes("clear") && (messageLower.includes("filter") || messageLower.includes("all"))) {
+      filter = "all";
+      replyMessage = "✅ All filters cleared! Showing all available jobs.";
+    }
+    // Help responses
+    else if (messageLower.includes("help") || messageLower.includes("how to") || messageLower.includes("what can you do")) {
+      replyMessage = "💡 I can help you find jobs! Try asking:\n\n• 'Show remote jobs'\n• 'Find hybrid positions'\n• 'Full-time jobs'\n• 'Contract jobs'\n• 'High match scores'\n• 'Clear all filters'";
+    }
+    else if (messageLower.includes("application") || messageLower.includes("applied")) {
+      replyMessage = "📋 Click the 'View Applications' button at the top right to see all your applications. You can update status (Applied, Interview, Offer, Rejected) from there.";
+    }
+    else if (messageLower.includes("resume") || messageLower.includes("upload")) {
+      replyMessage = "📄 You can paste your resume in the text area or click 'Choose File' to upload a PDF or TXT file. Then click 'Save Resume' to store it for AI matching.";
+    }
+    else if (messageLower.includes("match") || messageLower.includes("score")) {
+      replyMessage = "🎯 Match scores (0-100%) show how well your resume skills match the job requirements:\n• Green (>70%) = High match\n• Yellow (40-70%) = Medium match\n• Gray (<40%) = Low match";
+    }
+    else if (messageLower.includes("job") || messageLower.includes("work")) {
+      replyMessage = "🔍 I can help you find jobs! Try asking:\n• 'Show remote jobs'\n• 'Find hybrid positions'\n• 'Full-time jobs'\n• 'Contract jobs'";
+    }
+    else {
+      replyMessage = "💬 I'm your AI Job Assistant! I can help you find jobs. Try asking:\n\n• 'Show remote jobs'\n• 'Find hybrid positions'\n• 'Full-time jobs'\n• 'Contract jobs'\n• 'High match scores'\n• 'Clear all filters'";
+    }
+    
+    console.log(`🤖 AI Chat - Query: "${message}" -> Filter: ${filter || "none"}`);
     
     return reply.send({
-      reply: result.reply,
-      filters: result.filters,
-      intent: result.intent
+      reply: replyMessage,
+      filter: filter
     });
+    
   } catch (err) {
-    console.error("AI Chat error:", err);
+    console.error("❌ Chat error:", err);
     return reply.status(500).send({ 
       reply: "Sorry, I encountered an error. Please try again.",
-      filters: null
+      filter: null
     });
   }
-});
-
-app.post("/ai-chat/reset", async (req, reply) => {
-  aiAssistant.reset();
-  return reply.send({ success: true, message: "Chat reset" });
 });
 
 // ============================================
@@ -575,14 +383,11 @@ app.post("/apply", async (req, reply) => {
     id: applications.length + 1,
     ...req.body,
     status: "Applied",
-    appliedDate: new Date().toISOString(),
-    timeline: [{
-      status: "Applied",
-      date: new Date().toISOString()
-    }]
+    appliedDate: new Date().toISOString()
   };
   
   applications.push(application);
+  console.log(`✅ Application saved: ${application.jobTitle} for ${application.email}`);
   return reply.send({ success: true, application });
 });
 
@@ -596,11 +401,9 @@ app.put("/apply/:id/status", async (req, reply) => {
   }
   
   application.status = status;
-  application.timeline.push({
-    status,
-    date: new Date().toISOString()
-  });
+  application.updatedAt = new Date().toISOString();
   
+  console.log(`📝 Application ${id} status updated to: ${status}`);
   return reply.send({ success: true, application });
 });
 
@@ -610,19 +413,6 @@ app.get("/applications", async (req, reply) => {
     return reply.send(applications.filter(a => a.email === email));
   }
   return reply.send(applications);
-});
-
-app.get("/applications/stats", async (req, reply) => {
-  const stats = {
-    total: applications.length,
-    byStatus: {
-      Applied: applications.filter(a => a.status === "Applied").length,
-      Interview: applications.filter(a => a.status === "Interview").length,
-      Offer: applications.filter(a => a.status === "Offer").length,
-      Rejected: applications.filter(a => a.status === "Rejected").length
-    }
-  };
-  return reply.send(stats);
 });
 
 // ============================================
@@ -636,9 +426,19 @@ const start = async () => {
     console.log("=".repeat(60));
     console.log(`📡 Server: http://localhost:5000`);
     console.log(`📊 Jobs loaded: ${jobs.length}`);
-    console.log(`🤖 LangChain AI Matching: Active`);
-    console.log(`🔄 LangGraph Assistant: Active`);
+    console.log(`🤖 AI Chat Assistant: Active`);
+    console.log(`🔍 Remote jobs detection: Active`);
     console.log("=".repeat(60));
+    console.log("\n✅ AI Chat Commands:");
+    console.log("   • 'remote jobs' → Shows remote jobs");
+    console.log("   • 'hybrid jobs' → Shows hybrid jobs");
+    console.log("   • 'full-time jobs' → Shows full-time jobs");
+    console.log("   • 'contract jobs' → Shows contract jobs");
+    console.log("   • 'clear filters' → Resets all filters");
+    console.log("\n📝 Test Credentials:");
+    console.log("   Email: test@gmail.com");
+    console.log("   Password: test@123");
+    console.log("\n");
   } catch (err) {
     console.error("Failed to start server:", err);
     process.exit(1);

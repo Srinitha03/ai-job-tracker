@@ -12,21 +12,23 @@ const JobCard = ({ job, onApply }) => {
         {job.company}
       </p>
 
-      <div className="flex gap-2 mt-3 flex-wrap">
-        <span className="bg-blue-100 text-blue-600 px-3 py-1 rounded-full text-sm">
-          {job.type}
-        </span>
+      {/* ✅ FIXED THIS PART */}
+      <p className="text-gray-500 mt-2 text-sm">
+        {job.type} • {job.mode}
+      </p>
 
-        <span className="bg-green-100 text-green-600 px-3 py-1 rounded-full text-sm">
-          {job.location}
-        </span>
+      {/* ✅ FIXED SKILLS */}
+      <p className="text-gray-500 text-sm">
+        {job.skills?.slice(0, 2).join(", ")}
+        {job.skills?.length > 2 && ` +${job.skills.length - 2}`}
+      </p>
 
-        {job.matchScore && (
-          <span className="bg-purple-100 text-purple-600 px-3 py-1 rounded-full text-sm">
-            Match: {job.matchScore}%
-          </span>
-        )}
-      </div>
+      {/* Match score */}
+      {job.matchScore !== undefined && (
+        <p className="text-sm font-medium text-purple-600 mt-2">
+          Match: {job.matchScore}%
+        </p>
+      )}
 
       <button
         onClick={() => onApply(job)}
